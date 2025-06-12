@@ -124,11 +124,3 @@ if st.sidebar.button("Generar Maestro Consolidado"):
 st.markdown("---")
 st.text("PR ANDINA • Generado con Streamlit")```
 
-**Puntos clave para ajustar a tu caso**:
-
-- Verifica que los fragmentos de nombre en el `if "consumerunits" in name` coincidan con tus archivos.  
-- Asegúrate de que las columnas referenciadas existen en cada export (por ejemplo, `PR.LogistU.NumberOfConsumerUnit`, `PR.LiquiQual.CountryOfOrigin`, `PR.Shipping.DispatchToReceiveLeadTime`, etc.).  
-- Si necesitas campos adicionales, sigue el mismo patrón: extraer de `logu`, `consu` o `shipping` con `.map(...)` o `.merge(...)`.
-
-Con esto ya tienes el script completo listo para subir a GitHub y desplegar. ¡Prueba y me dices si hace falta pulir algo más!
-

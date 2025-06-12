@@ -25,7 +25,7 @@ if st.sidebar.button("Generar Maestro Consolidado"):
         st.sidebar.error("Por favor sube los archivos fuente y el maestro actual.")
     else:
         # Leer maestro actual
-        master_old = pd.read_excel(uploaded_master, sheet_name="Maestro PR", header=1)
+        master_old = pd.read_excel(uploaded_master, sheet_name="Maestro", header=1)
         # Inicializar variables para cada fuente
         logu = consu = shipping = shipto = lead_time = general = None
         # Detectar y leer cada archivo según su nombre

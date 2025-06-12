@@ -4,7 +4,7 @@ from io import BytesIO
 
 st.set_page_config(page_title="Maestro SKU Builder", layout="wide")
 st.title("🛠️ Generador Automático de Maestro de Artículos")
-st.write("Sube tus archivos fuente y el maestro actual para generar de una vez tu tabla consolidada.")
+st.write("Sube tus archivos de Product Cloud y el maestro actual para generar la tabla consolidada.")
 
 # --- Subida de archivos ---
 st.sidebar.header("Carga de archivos")

@@ -31,7 +31,7 @@ if st.sidebar.button("Generar Maestro Consolidado"):
     else:
         # --- 1) Leer el Maestro actual ---
         # Ahora asumimos que la cabecera está en la primera fila (header=0)
-        master_old = pd.read_excel(uploaded_master, sheet_name="Maestro", header=0)
+        master_old = pd.read_excel(uploaded_master, sheet_name="Maestro", header=1)
         
         # --- 2) Detectar dinámicamente la columna de SKU/Código local ---
         cols = master_old.columns.tolist()

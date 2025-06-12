@@ -38,12 +38,10 @@ if st.sidebar.button("Generar Maestro Consolidado"):
         # --- 3) Detectar y leer cada export ---
         for file in downloads:
             name = file.name.lower()
-            # cada workbook tiene UNA sola pestaña, la cargamos por índice 0
             df = pd.read_excel(file, sheet_name=0, header=1)
-            
             if "consumerunits" in name or "cu_recipients" in name:
                 consu = df
-            elif "lo​​gisticunits" in name and "shipping" not in name:
+            elif "logisticunits" in name and "shipping" not in name:
                 logu = df
             elif "shipping" in name:
                 shipping = df
@@ -57,60 +55,36 @@ if st.sidebar.button("Generar Maestro Consolidado"):
         if missing:
             st.sidebar.error(f"❌ Faltan las fuentes: {', '.join(missing)}")
         else:
-            # --- 5) Construir el DataFrame base con la lista de SKUs ---
+            # --- 5) Definir mapeos de columnas ---
+            # Formato: "Nombre destino en df_final": (df_fuente, columna_índice, columna_valor)
+            field_mappings = {
+                "Descripcion":             (logu,     "PR.LogistU.ERPID", "PR.LogistU.MyOwnPortfolio"),
+                "Mercado":                 (consu,    "PR.ConsumU.ERPID", "PR.LiquiQual.CountryOfOrigin"),
+                "Pack Size (UxC)":         (logu,     "PR.LogistU.ERPID", "PR.LogistU.NumberOfConsumerUnit"),
+                # Ejemplo Bottle size; ajusta si tu export lo nombra distinto
+                "Bottle size":             (logu,     "PR.LogistU.ERPID", "PR.LogistU.TotalBeverageVolume"),
+                "DispatchToReceiveLeadTime": (shipping, "PR.LogistU.ERPID", "PR.Shipping.DispatchToReceiveLeadTime"),
+                "OrderToReceiveLeadTime":    (shipping, "PR.LogistU.ERPID", "PR.Shipping.OrderToReceiveLeadTime"),
+                "OriginWarehouse":         (shipping, "PR.LogistU.ERPID", "PR.ShipFrom.InitiatorWarehouseName"),
+                "DestinationWarehouse":    (shipping, "PR.LogistU.ERPID", "PR.ShipTo.RecipientWarehouseName"),
+                # Añade aquí más mapeos según necesites...
+            }
+
+            # --- 6) Construir DataFrame final y aplicar mapeos ---
             df_final = master_old[["SKU\nCódigo local"]].copy()
             df_final.columns = ["CodigoLocal"]
-            
-            # --- 6) Descripción desde LogU ---
-            df_final = df_final.merge(
-                logu[["PR.LogistU.ERPID","PR.LogistU.MyOwnPortfolio"]],
-                left_on="CodigoLocal", right_on="PR.LogistU.ERPID",
-                how="left"
-            ).rename(columns={"PR.LogistU.MyOwnPortfolio":"Descripcion"})
-            
-            # --- 7) Mercado desde ConsU (CountryOfOrigin) ---
-            df_final["Mercado"] = df_final["CodigoLocal"].map(
-                consu.set_index("PR.ConsumU.ERPID")["PR.LiquiQual.CountryOfOrigin"]
-            )
-            
-            # --- 8) ABC (constante 0) ---
+
+            for dest_col, (src_df, idx_col, val_col) in field_mappings.items():
+                lookup = src_df.set_index(idx_col)[val_col]
+                df_final[dest_col] = df_final["CodigoLocal"].map(lookup)
+
+            # --- 7) Columnas adicionales ---
             df_final["ABC"] = 0
-            
-            # --- 9) Pack Size (NumberOfConsumerUnit) ---
-            df_final["Pack Size (UxC)"] = df_final["CodigoLocal"].map(
-                logu.set_index("PR.LogistU.ERPID")["PR.LogistU.NumberOfConsumerUnit"]
-            )
-            
-            # --- 10) Bottle size (Volume) ---
-            # Ejemplo: si tu export LogU tuviera 'PR.LogistU.TotalBeverageVolume':
-            # df_final["Bottle size"] = df_final["CodigoLocal"].map(
-            #     logu.set_index("PR.LogistU.ERPID")["PR.LogistU.TotalBeverageVolume"]
-            # )
-            # Ajusta la columna según tu export.
-            
-            # --- 11) Lead Times desde Shipping ---
-            shipping_idx = shipping.set_index("PR.LogistU.ERPID")
-            df_final["DispatchToReceiveLeadTime"] = df_final["CodigoLocal"].map(
-                shipping_idx["PR.Shipping.DispatchToReceiveLeadTime"]
-            )
-            df_final["OrderToReceiveLeadTime"] = df_final["CodigoLocal"].map(
-                shipping_idx["PR.Shipping.OrderToReceiveLeadTime"]
-            )
-            
-            # --- 12) Origin & Destination Warehouses ---
-            df_final["OriginWarehouse"] = df_final["CodigoLocal"].map(
-                shipping_idx["PR.ShipFrom.InitiatorWarehouseName"]
-            )
-            df_final["DestinationWarehouse"] = df_final["CodigoLocal"].map(
-                shipping_idx["PR.ShipTo.RecipientWarehouseName"]
-            )
-            
-            # ... aquí puedes seguir agregando columnas replicando tus XLOOKUP ...
-            
-            # --- 13) Mostrar y permitir descarga ---
+
+            # --- 8) Mostrar y permitir descarga ---
             st.subheader("Vista Previa Maestro Consolidado")
             st.dataframe(df_final.head(10))
-            
+
             buffer = BytesIO()
             df_final.to_excel(buffer, index=False)
             buffer.seek(0)

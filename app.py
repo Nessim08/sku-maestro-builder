@@ -13,7 +13,7 @@ downloads = st.sidebar.file_uploader(
     help="Sube todos los Excel que descargas de Product Cloud, cada uno con pestaña 'Export'"
 )
 uploaded_master = st.sidebar.file_uploader(
-    "Maestro Actual (Todos SKU ok(2))", type=["xlsx"], key="master"
+    "Maestro PR ANDINA (Maestro)", type=["xlsx"], key="master"
 )
 
 if st.sidebar.button("Generar Maestro Consolidado"):
@@ -21,7 +21,7 @@ if st.sidebar.button("Generar Maestro Consolidado"):
         st.sidebar.error("Por favor sube los archivos fuente (Export) y tu maestro actual.")
     else:
         # Leer maestro actual
-        master_old = pd.read_excel(uploaded_master, sheet_name="Todos SKU ok(2)", header=1)
+        master_old = pd.read_excel(uploaded_master, sheet_name="Maestro", header=1)
         # Inicializar variables para cada fuente
         logu = consu = shipping = shipto = lead_time = general = None
         # Leer cada archivo asumiendo hoja 'Export'

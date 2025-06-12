@@ -122,5 +122,5 @@ if st.sidebar.button("Generar Maestro Consolidado"):
             )
 
 st.markdown("---")
-st.text("PR ANDINA • Generado con Streamlit")```
+st.text("PR ANDINA • Generado con Streamlit")
 

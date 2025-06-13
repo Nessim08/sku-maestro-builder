@@ -78,16 +78,41 @@ if st.sidebar.button("Generar Maestro Consolidado"):
     df_final = df_final.merge(
         logu.set_index("PR.LogistU.ERPID")[["PR.LogistU.MyOwnPortfolio"]],
         left_on="CodigoLocal", right_index=True, how="left"
-    ).rename(columns={"PR.LogistU.Description1#en-US": "Descripcion"})
+    ).rename(columns={"PR.LogistU.MyOwnPortfolio": "Descripcion"})
 
     # --- 8) Mercado desde ConsU ---
     df_final["Mercado"] = df_final["CodigoLocal"].map(
-        consu.set_index("PR.ConsumU.ERPID")[PR.LogistU.MyOwnPortfolio"]
+        consu.set_index("PR.ConsumU.ERPID")["PR.LiquiQual.CountryOfOrigin"]
     )
 
     # --- 9) ABC (constante) ---
     df_final["ABC"] = 0
 
+    # --- 10) Pack Size (NumberOfConsumerUnit) ---
+    df_final["Pack Size (UxC)"] = df_final["CodigoLocal"].map(
+        logu.set_index("PR.LogistU.ERPID")["PR.LogistU.NumberOfConsumerUnit"]
+    )
+
+    # --- 11) Bottle size (TotalBeverageVolume) ---
+    df_final["Bottle size"] = df_final["CodigoLocal"].map(
+        logu.set_index("PR.LogistU.ERPID")["PR.LogistU.TotalBeverageVolume"]
+    )
+
+    # --- 12) Lead Times desde Shipping ---
+    ship_idx = shipping.set_index("PR.LogistU.ERPID")
+    df_final["DispatchToReceiveLeadTime"] = df_final["CodigoLocal"].map(
+        ship_idx["PR.Shipping.DispatchToReceiveLeadTime"]
+    )
+    df_final["OrderToReceiveLeadTime"] = df_final["CodigoLocal"].map(
+        ship_idx["PR.Shipping.OrderToReceiveLeadTime"]
+    )
+
+    # --- 13) Origin & Destination Warehouses desde ShipTo y ShipFrom ---
+    df_final["OriginWarehouse"] = df_final["CodigoLocal"].map(
+        shipfrom.set_index("PR.LogistU.ERPID")["PR.ShipFrom.InitiatorWarehouseName"]
+    )
+    df_final["DestinationWarehouse"] = df_final["CodigoLocal"].map(
+        shipto.set_index("PR.LogistU.ERPID")["PR.ShipTo.RecipientWarehouseName"]
     )
 
     # ... agrega aquí las columnas adicionales que necesites con más .map(...) ...

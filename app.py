@@ -38,7 +38,7 @@ if st.sidebar.button("Generar Maestro Consolidado"):
         # 3) Detectar y leer cada export (cabeceras en fila 3 → header=2)
         for file in downloads:
             name = file.name.lower()
-            df = pd.read_excel(file, sheet_name=0, header=2)
+            df = pd.read_excel(file, sheet_name=0, header=0)
             if "consumerunits" in name or "cu_recipients" in name:
                 consu = df
             elif "logisticunits" in name and "shipping" not in name:

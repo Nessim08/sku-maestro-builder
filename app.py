@@ -29,16 +29,16 @@ if st.sidebar.button("Generar Maestro Consolidado"):
     if not downloads or not uploaded_master:
         st.sidebar.error("❌ Primero sube los tres exports y luego tu archivo Maestro.")
     else:
-        # 1) Leer el Maestro actual
+        # 1) Leer el Maestro actual (cabeceras en fila 3 → header=2)
         master_old = pd.read_excel(uploaded_master, sheet_name="Maestro", header=2)
 
         # 2) Inicializar DataFrames fuente
         logu = consu = shipping = None
 
-        # 3) Detectar y leer cada export
+        # 3) Detectar y leer cada export (cabeceras en fila 3 → header=2)
         for file in downloads:
             name = file.name.lower()
-            df = pd.read_excel(file, sheet_name=0, header=0)
+            df = pd.read_excel(file, sheet_name=0, header=2)
             if "consumerunits" in name or "cu_recipients" in name:
                 consu = df
             elif "logisticunits" in name and "shipping" not in name:
@@ -61,29 +61,33 @@ if st.sidebar.button("Generar Maestro Consolidado"):
 
             # 6) SKU, Descripción y Mercado desde LogU
             logu_idx = logu.set_index("PR.LogistU.ERPID")
-            df_final["SKU"] = df_final["CodigoLocal"].map(logu_idx.index)
-            df_final["Descripcion"] = df_final["CodigoLocal"].map(
+
+            # asigna el mismo CódigoLocal solo si existe en LogU
+            df_final["SKU"] = df_final["CodigoLocal"].where(
+                df_final["CodigoLocal"].isin(logu_idx.index)
+            )
+            df_final["Descripcion"] = df_final["SKU"].map(
                 logu_idx["PR.LogistU.Description1#en-US"]
             )
-            df_final["Mercado"] = df_final["CodigoLocal"].map(
+            df_final["Mercado"] = df_final["SKU"].map(
                 logu_idx["PR.LogistU.MyOwnPortfolio"]
             )
 
             # 7) Pack Size (UxC) desde LogU
-            df_final["Pack Size (UxC)"] = df_final["CodigoLocal"].map(
+            df_final["Pack Size (UxC)"] = df_final["SKU"].map(
                 logu_idx["PR.LogistU.NumberOfConsumerUnit"]
             )
 
             # 8) Bottle size desde LogU multiplicado por 10
             df_final["Bottle size"] = (
-                df_final["CodigoLocal"]
+                df_final["SKU"]
                 .map(logu_idx["PR.BranQualSiz.Size"])
                 .astype(float)
                 * 10
             )
 
-            # 9) Eliminar filas sin SKU
-            df_final = df_final.dropna(subset=["CodigoLocal"])
+            # 9) Eliminamos filas sin SKU
+            df_final = df_final.dropna(subset=["SKU"])
 
             # 10) Mostrar y descargar
             st.subheader("Vista Previa Maestro Consolidado")
@@ -101,5 +105,6 @@ if st.sidebar.button("Generar Maestro Consolidado"):
 
 st.markdown("---")
 st.text("PR ANDINA • Generado con Streamlit")
+
 
 

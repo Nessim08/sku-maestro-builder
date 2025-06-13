@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-# --- Configuración de la página ---
 st.set_page_config(page_title="Maestro SKU Builder", layout="wide")
 st.title("🛠️ Generador Automático de Maestro de Artículos")
 st.write(
@@ -10,121 +9,96 @@ st.write(
     "para obtener la tabla consolidada sin usar pivot tables."
 )
 
-# --- Sidebar: subida de archivos ---
+# ----------------------------
+# Subida de archivos
+# ----------------------------
 downloads = st.sidebar.file_uploader(
-    "Archivos raw de Product Cloud (.xlsx)",
-    type=["xlsx"],
+    "Archivos raw de Product Cloud (.xlsx)", 
+    type=["xlsx"], 
     accept_multiple_files=True,
-    help="Sube los exports de ConsumerUnits, LogisticUnits (recipients), "
-         "LogisticUnits (shipping) y/o ShipTo."
+    help="Sube los exports: ConsumerUnits, LogisticUnits (recipients, shipfrom), Shipping y ShipTo."
 )
 uploaded_master = st.sidebar.file_uploader(
-    "Maestro Actual (.xlsx)",
-    type=["xlsx"],
+    "Maestro Actual (.xlsx)", 
+    type=["xlsx"], 
     key="master",
-    help="Tu libro de Excel con la hoja 'Maestro' que contiene el listado de SKUs."
+    help="Tu libro de Excel con la hoja 'Maestro' (incluye encabezados en la fila 3)."
 )
 
 if st.sidebar.button("Generar Maestro Consolidado"):
-    # 1) Validar subida
     if not downloads or not uploaded_master:
-        st.sidebar.error("❌ Primero sube los archivos raw y luego tu Maestro actual.")
+        st.sidebar.error("❌ Primero sube todos los exports y luego tu archivo Maestro.")
         st.stop()
 
-    # 2) Lectura del maestro
+    # --- 1) Leer el Maestro actual detectando el header ---
     try:
-        all_sheets = pd.read_excel(uploaded_master, sheet_name=None)
+        master_old = pd.read_excel(uploaded_master, sheet_name="Maestro", header=2)
     except Exception as e:
-        st.sidebar.error(f"❌ No pude leer tu Maestro: {e}")
+        st.sidebar.error(f"❌ Error leyendo el Maestro: {e}")
         st.stop()
 
-    # Intentamos hoja "Maestro" o la única si solo hay una
-    if "Maestro" in all_sheets:
-        master_df = all_sheets["Maestro"]
-    elif len(all_sheets) == 1:
-        master_df = list(all_sheets.values())[0]
-    else:
-        st.sidebar.error(
-            "❌ No encontré hoja 'Maestro'. Hojas disponibles: "
-            f"{', '.join(all_sheets.keys())}"
-        )
-        st.stop()
-
-    # Limpiar nombres de columnas (quitar saltos de línea y espacios)
-    master_df.columns = (
-        master_df.columns
-        .astype(str)
-        .str.replace("\n", " ", regex=False)
-        .str.strip()
-    )
-
-    # Detectar columna de SKU en el maestro
-    sku_cols = [
-        col for col in master_df.columns
-        if "SKU" in col.upper() and "CÓDIGO" in col.upper()
-    ]
-    if not sku_cols:
+    # --- 2) Detectar columna de SKU local ---
+    sku_col = next((c for c in master_old.columns if "SKU" in str(c)), None)
+    if sku_col is None:
         st.sidebar.error(
             "❌ No pude encontrar la columna de SKU en tu Maestro. "
-            f"Columnas disponibles: {', '.join(master_df.columns)}"
+            f"Columnas disponibles: {', '.join(master_old.columns.astype(str))}"
         )
         st.stop()
-    sku_col = sku_cols[0]
 
-    # Construir df_final con la lista de SKUs
-    df_final = master_df[[sku_col]].copy()
-    df_final.rename(columns={sku_col: "CodigoLocal"}, inplace=True)
+    # --- 3) Inicializar DataFrames fuente ---
+    consu = logu = shipping = shipto = None
 
-    # 3) Leer y detectar cada export raw
-    logu = consu = shipping = None
-    for f in downloads:
-        name = f.name.lower()
-        # todos los exports tienen su header en la fila 2 (index=1)
-        df = pd.read_excel(f, header=1)
-        # limpiar columnas
-        df.columns = df.columns.astype(str).str.strip()
-
-        if "consumerunits" in name or "cu_recipients" in name:
+    # --- 4) Leer cada export raw ---
+    for file in downloads:
+        name = file.name.lower()
+        df = pd.read_excel(file, header=1)  # header=1 si tus raw tienen encabezado en segunda fila
+        if "consumerunits" in name and "recipients" in name:
             consu = df
-        elif "logisticunits" in name and "shipping" not in name:
+        elif "logisticunits" in name and "lu_recipients" in name:
             logu = df
-        elif "shipping" in name:
+        elif "logisticunits" in name and "shipfrom" in name:
+            shipfrom = df
+        elif "logisticunits" in name and "shipping" in name:
             shipping = df
-        # si tuvieras un shipto separado, podrías capturarlo aquí:
-        # elif "shipto" in name:
-        #     shipto = df
+        elif "logisticunits" in name and "shipto" in name:
+            shipto = df
 
-    missing = [
-        label for label, df in 
-        {"LogU": logu, "ConsU": consu, "Shipping": shipping}.items()
-        if df is None
-    ]
+    # --- 5) Verificar fuentes ---
+    missing = [lbl for lbl, df in {"ConsU": consu, "LogU": logu, "ShipFrom": shipfrom, "Shipping": shipping, "ShipTo": shipto}.items() if df is None]
     if missing:
-        st.sidebar.error(f"❌ Faltan las fuentes: {', '.join(missing)}")
+        st.sidebar.error(f"❌ Faltan las fuentes raw: {', '.join(missing)}")
         st.stop()
 
-    # 4) Merge de datos
-    # 4.1 Descripción desde LogU
+    # --- 6) Construir df_final con la lista de SKUs del Maestro ---
+    df_final = master_old[[sku_col]].copy()
+    df_final.columns = ["CodigoLocal"]
+
+    # --- 7) Descripción desde LogU ---
     df_final = df_final.merge(
-        logu[["PR.LogistU.ERPID", "PR.LogistU.MyOwnPortfolio"]],
-        left_on="CodigoLocal", right_on="PR.LogistU.ERPID",
-        how="left"
+        logu.set_index("PR.LogistU.ERPID")[["PR.LogistU.MyOwnPortfolio"]],
+        left_on="CodigoLocal", right_index=True, how="left"
     ).rename(columns={"PR.LogistU.MyOwnPortfolio": "Descripcion"})
 
-    # 4.2 Mercado desde ConsU
+    # --- 8) Mercado desde ConsU ---
     df_final["Mercado"] = df_final["CodigoLocal"].map(
         consu.set_index("PR.ConsumU.ERPID")["PR.LiquiQual.CountryOfOrigin"]
     )
 
-    # 4.3 ABC (constante 0)
+    # --- 9) ABC (constante) ---
     df_final["ABC"] = 0
 
-    # 4.4 Pack Size (NumberOfConsumerUnit)
+    # --- 10) Pack Size (NumberOfConsumerUnit) ---
     df_final["Pack Size (UxC)"] = df_final["CodigoLocal"].map(
         logu.set_index("PR.LogistU.ERPID")["PR.LogistU.NumberOfConsumerUnit"]
     )
 
-    # 4.5 Lead Times desde Shipping
+    # --- 11) Bottle size (TotalBeverageVolume) ---
+    df_final["Bottle size"] = df_final["CodigoLocal"].map(
+        logu.set_index("PR.LogistU.ERPID")["PR.LogistU.TotalBeverageVolume"]
+    )
+
+    # --- 12) Lead Times desde Shipping ---
     ship_idx = shipping.set_index("PR.LogistU.ERPID")
     df_final["DispatchToReceiveLeadTime"] = df_final["CodigoLocal"].map(
         ship_idx["PR.Shipping.DispatchToReceiveLeadTime"]
@@ -133,17 +107,17 @@ if st.sidebar.button("Generar Maestro Consolidado"):
         ship_idx["PR.Shipping.OrderToReceiveLeadTime"]
     )
 
-    # 4.6 Origin & Destination Warehouses
+    # --- 13) Origin & Destination Warehouses desde ShipTo y ShipFrom ---
     df_final["OriginWarehouse"] = df_final["CodigoLocal"].map(
-        ship_idx["PR.ShipFrom.InitiatorWarehouseName"]
+        shipfrom.set_index("PR.LogistU.ERPID")["PR.ShipFrom.InitiatorWarehouseName"]
     )
     df_final["DestinationWarehouse"] = df_final["CodigoLocal"].map(
-        ship_idx["PR.ShipTo.RecipientWarehouseName"]
+        shipto.set_index("PR.LogistU.ERPID")["PR.ShipTo.RecipientWarehouseName"]
     )
 
-    # ... aquí puedes seguir agregando más columnas como necesites ...
+    # ... agrega aquí las columnas adicionales que necesites con más .map(...) ...
 
-    # 5) Mostrar y ofrecer descarga
+    # --- 14) Mostrar y permitir descarga ---
     st.subheader("Vista Previa Maestro Consolidado")
     st.dataframe(df_final.head(10))
 

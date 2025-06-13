@@ -48,7 +48,7 @@ if st.sidebar.button("Generar Vista"):
     for f in downloads:
         name = f.name.lower()
         if "logisticunits" in name and "recipients" in name:
-            logu = pd.read_excel(f, header=1)
+            logu = pd.read_excel(f, header=0)
 
     if logu is None:
         st.sidebar.error("❌ No encontré un archivo LogU válido entre los subidos.")

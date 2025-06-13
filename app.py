@@ -1,92 +1,65 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
+from io import StringIO
 
-st.set_page_config(page_title="Maestro SKU Builder", layout="wide")
+# --- Configuración de la página ---
+st.set_page_config(
+    page_title="Generador SKU | Descripción | Mercado", 
+    layout="wide"
+)
+
 st.title("🛠️ Generador Automático de Vista SKU | Descripción | Mercado")
-st.write(
-    "Sube tu export LogU de Product Cloud y tu Maestro actual "
-    "para obtener una vista con SKU, Descripción y Mercado."
+st.write("Sube tu export **LogU** de Product Cloud para obtener una vista con SKU, Descripción y Mercado.")
+
+# --- Uploader único para el raw export LogU ---
+logu_file = st.file_uploader(
+    "📂 Export LogU (.xlsx)", 
+    type=["xlsx"],
+    help="Sube el raw export de LogisticUnits (LU_Recipients)"
 )
 
-# ----------------------------
-# Subida de archivos
-# ----------------------------
-downloads = st.sidebar.file_uploader(
-    "Archivo raw LogU (.xlsx)", 
-    type=["xlsx"], 
-    accept_multiple_files=True,
-    help="LogisticUnitsProductsUpExport_for_Affiliate_lu_recipients"
-)
-uploaded_master = st.sidebar.file_uploader(
-    "Maestro Actual (.xlsx)", 
-    type=["xlsx"], 
-    key="master",
-    help="Libro con la hoja 'Maestro' (encabezados en la fila 3)."
-)
-
-if st.sidebar.button("Generar Vista"):
-    # 1) Validaciones iniciales
-    if not downloads or not uploaded_master:
-        st.sidebar.error("❌ Sube el export LogU y tu Maestro actual primero.")
-        st.stop()
-
-    # 2) Leer Maestro actual (header=2 → tercera fila)
-    master_old = pd.read_excel(uploaded_master, sheet_name="Maestro", header=2)
-
-    # 3) Detectar columna SKU en Maestro
-    sku_col = next((c for c in master_old.columns if "SKU" in str(c)), None)
-    if sku_col is None:
-        st.sidebar.error(
-            "❌ No encontré la columna SKU en tu Maestro. "
-            f"Columnas disponibles: {', '.join(master_old.columns.astype(str))}"
-        )
-        st.stop()
-
-    # 4) Leer export LogU
-    logu = None
-    for f in downloads:
-        name = f.name.lower()
-        if "logisticunits" in name and "recipients" in name:
-            logu = pd.read_excel(f, header=0)
-
-    if logu is None:
-        st.sidebar.error("❌ No encontré un archivo LogU válido entre los subidos.")
-        st.stop()
-
-    # 5) Construir df_final con las 3 columnas
-    df_final = master_old[[sku_col]].copy()
-    df_final.columns = ["CodigoLocal"]
-
-    # Preparamos el índice de lookup
-    lookup = logu.set_index("PR.LogistU.ERPID")
-
-    # 5.1) Descripción
-    df_final["Descripcion"] = df_final["CodigoLocal"].map(
-        lookup["PR.LogistU.Description1#en-US"]
-    )
-
-    # 5.2) Mercado
-    df_final["Mercado"] = df_final["CodigoLocal"].map(
-        lookup["PR.LogistU.MyOwnPortfolio"]
-    )
-
-    # 6) Mostrar en pantalla
-    st.subheader("Vista: SKU | Descripción | Mercado")
-    st.dataframe(df_final.head(20))
-
-    # 7) Botón de descarga
-    buffer = BytesIO()
-    df_final.to_excel(buffer, index=False)
-    buffer.seek(0)
-    st.download_button(
-        label="⬇️ Descargar Vista",
-        data=buffer,
-        file_name="Vista_SKU_Desc_Mercado.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-st.markdown("---")
-st.text("PR ANDINA • Generado con Streamlit")
+if logu_file:
+    try:
+        # Intentamos leer asumiendo que la fila 0 es el header
+        logu_df = pd.read_excel(logu_file, sheet_name=0, header=0)
+        
+        # Columnas que vamos a extraer
+        expected_cols = [
+            "PR.LogistU.ERPID",
+            "PR.LogistU.Description1#en-US",
+            "PR.LogistU.MyOwnPortfolio"
+        ]
+        
+        # Verificamos que estén todas
+        missing = [c for c in expected_cols if c not in logu_df.columns]
+        if missing:
+            st.error(
+                "❌ No pude encontrar las columnas necesarias en tu export LogU.\n\n"
+                f"Faltan: **{', '.join(missing)}**\n\n"
+                "Columnas disponibles:\n\n"
+                + ", ".join(f"`{c}`" for c in logu_df.columns.tolist())
+            )
+        else:
+            # Extraemos y renombramos
+            vista = logu_df[expected_cols].rename(columns={
+                "PR.LogistU.ERPID": "SKU",
+                "PR.LogistU.Description1#en-US": "Descripción",
+                "PR.LogistU.MyOwnPortfolio": "Mercado"
+            })
+            
+            st.subheader("✅ Vista Generada")
+            st.dataframe(vista)
+            
+            # Botón de descarga en CSV
+            csv_buffer = StringIO()
+            vista.to_csv(csv_buffer, index=False, sep=";")
+            st.download_button(
+                label="⬇️ Descargar CSV (SKU_Desc_Mercado.csv)",
+                data=csv_buffer.getvalue(),
+                file_name="SKU_Desc_Mercado.csv",
+                mime="text/csv"
+            )
+    except Exception as e:
+        st.error(f"❌ Ocurrió un error leyendo el archivo: `{e}`")
 
 

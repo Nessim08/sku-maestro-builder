@@ -2,71 +2,104 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-st.set_page_config(page_title="Vista SKU | Descripción | Mercado", layout="wide")
-st.title("🛠️ Generador Automático de Vista SKU | Descripción | Mercado")
+st.set_page_config(page_title="Maestro SKU Builder", layout="wide")
+st.title("🛠️ Generador Automático de Maestro de Artículos")
 st.write(
-    "Sube tu export **LogU** de Product Cloud y tu **Maestro** actual "
-    "para obtener la vista consolidada sin tener que pasar por pivots."
+    "Sube tus 3 archivos exportados de Product Cloud (hoja única) y tu Maestro actual "
+    "para obtener la tabla consolidada."
 )
 
 # ----------------------------
-# Sidebar: carga de archivos
+# Subida de archivos
 # ----------------------------
-logu_file = st.sidebar.file_uploader(
-    "Export LogU (.xlsx)", 
-    type=["xlsx"],
-    help="LogisticUnitsProductsUpExport (hoja única)"
+downloads = st.sidebar.file_uploader(
+    "Archivos fuente de Product Cloud (.xlsx)", 
+    type=["xlsx"], 
+    accept_multiple_files=True,
+    help="Sube los tres exports: LogU, ConsU y Shipping, cada uno con su única hoja."
 )
-master_file = st.sidebar.file_uploader(
-    "Maestro Actual (.xlsx)", 
-    type=["xlsx"],
-    help="Tu libro de Excel con la hoja 'Maestro'"
+uploaded_master = st.sidebar.file_uploader(
+    "Maestro Actual (Maestro)", 
+    type=["xlsx"], 
+    key="master",
+    help="Tu libro de Excel con la hoja 'Maestro' que contiene el listado de SKUs."
 )
-if st.sidebar.button("Generar Vista SKU"):
-    if not logu_file or not master_file:
-        st.sidebar.error("❌ Primero sube tu export LogU y luego tu Maestro.")
+
+if st.sidebar.button("Generar Maestro Consolidado"):
+    if not downloads or not uploaded_master:
+        st.sidebar.error("❌ Primero sube los tres exports y luego tu archivo Maestro.")
     else:
-        # --- 1) Leer y filtrar LogU ---
-        logu = pd.read_excel(logu_file, sheet_name=0, header=0)
-        logu = logu[[
-            "PR.LogistU.ERPID",
-            "PR.LogistU.Description1#en-US",
-            "PR.LogistU.MyOwnPortfolio"
-        ]].copy()
-        logu.columns = ["SKU", "Descripcion", "Mercado"]
-        logu = logu[
-            logu["SKU"].notna() &
-            (logu["SKU"].astype(str).str.strip() != "")
+        # 1) Leer el Maestro actual
+        master_old = pd.read_excel(uploaded_master, sheet_name="Maestro", header=2)
+
+        # 2) Inicializar DataFrames fuente
+        logu = consu = shipping = None
+
+        # 3) Detectar y leer cada export
+        for file in downloads:
+            name = file.name.lower()
+            df = pd.read_excel(file, sheet_name=0, header=0)
+            if "consumerunits" in name or "cu_recipients" in name:
+                consu = df
+            elif "logisticunits" in name and "shipping" not in name:
+                logu = df
+            elif "shipping" in name:
+                shipping = df
+
+        # 4) Verificar que tenemos las 3 fuentes
+        missing = [
+            label for label, df in 
+            {"LogU": logu, "ConsU": consu, "Shipping": shipping}.items()
+            if df is None
         ]
+        if missing:
+            st.sidebar.error(f"❌ Faltan las fuentes: {', '.join(missing)}")
+        else:
+            # 5) Construir DataFrame base con SKUs
+            df_final = master_old[["SKU\nCódigo local"]].copy()
+            df_final.columns = ["CodigoLocal"]
 
-        # --- 2) Leer Maestro actual ---
-        master = pd.read_excel(master_file, sheet_name="Maestro", header=2)
-        master = master[[
-            "SKU\nCódigo local",
-            "Descripción / Description",
-            "Mercado / Market"
-        ]].copy()
-        master.columns = ["SKU", "Descripcion", "Mercado"]
+            # 6) SKU, Descripción y Mercado desde LogU
+            logu_idx = logu.set_index("PR.LogistU.ERPID")
+            df_final["SKU"] = df_final["CodigoLocal"].map(logu_idx.index)
+            df_final["Descripcion"] = df_final["CodigoLocal"].map(
+                logu_idx["PR.LogistU.Description1#en-US"]
+            )
+            df_final["Mercado"] = df_final["CodigoLocal"].map(
+                logu_idx["PR.LogistU.MyOwnPortfolio"]
+            )
 
-        # --- 3) Extraer los SKUs que solo estaban en el Maestro viejo ---
-        old_only = master[~master["SKU"].isin(logu["SKU"])]
+            # 7) Pack Size (UxC) desde LogU
+            df_final["Pack Size (UxC)"] = df_final["CodigoLocal"].map(
+                logu_idx["PR.LogistU.NumberOfConsumerUnit"]
+            )
 
-        # --- 4) Concatenar y mostrar ---
-        final = pd.concat([logu, old_only], ignore_index=True)
-        st.subheader("👀 Vista Consolidada de SKU | Descripción | Mercado")
-        st.dataframe(final, height=500)
+            # 8) Bottle size desde LogU multiplicado por 10
+            df_final["Bottle size"] = (
+                df_final["CodigoLocal"]
+                .map(logu_idx["PR.BranQualSiz.Size"])
+                .astype(float)
+                * 10
+            )
 
-        # --- 5) Botón de descarga ---
-        buffer = BytesIO()
-        final.to_excel(buffer, index=False)
-        buffer.seek(0)
-        st.download_button(
-            label="⬇️ Descargar Vista SKU",
-            data=buffer,
-            file_name="Vista_SKU_Descripcion_Mercado.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            # 9) Eliminar filas sin SKU
+            df_final = df_final.dropna(subset=["CodigoLocal"])
+
+            # 10) Mostrar y descargar
+            st.subheader("Vista Previa Maestro Consolidado")
+            st.dataframe(df_final.head(10))
+
+            buffer = BytesIO()
+            df_final.to_excel(buffer, index=False)
+            buffer.seek(0)
+            st.download_button(
+                label="⬇️ Descargar Maestro Consolidado",
+                data=buffer,
+                file_name="Maestro_Consolidado.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
 st.markdown("---")
 st.text("PR ANDINA • Generado con Streamlit")
+
 
